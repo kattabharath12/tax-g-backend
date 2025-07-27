@@ -1,4 +1,3 @@
-
 import rateLimit from 'express-rate-limit'
 import { Request, Response, NextFunction } from 'express'
 
@@ -25,7 +24,7 @@ export const authLimiter = createRateLimit(15 * 60 * 1000, 5) // 5 requests per 
 export const documentLimiter = createRateLimit(60 * 60 * 1000, 10) // 10 documents per hour
 
 // CORS middleware
-export const corsMiddleware = (req: Request, res: Response, next: NextFunction) => {
+export const corsMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000')
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization')
@@ -33,38 +32,43 @@ export const corsMiddleware = (req: Request, res: Response, next: NextFunction) 
   
   if (req.method === 'OPTIONS') {
     res.sendStatus(200)
-  } else {
-    next()
+    return
   }
+  
+  next()
 }
 
 // Error handling middleware
-export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction): void => {
   console.error('Error:', err)
 
   if (err.name === 'ValidationError') {
-    return res.status(400).json({
+    res.status(400).json({
       error: 'Validation Error',
       details: err.message
     })
+    return
   }
 
   if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({
+    res.status(401).json({
       error: 'Unauthorized'
     })
+    return
   }
 
   if (err.code === 'P2002') { // Prisma unique constraint error
-    return res.status(409).json({
+    res.status(409).json({
       error: 'Resource already exists'
     })
+    return
   }
 
   if (err.code === 'P2025') { // Prisma record not found error
-    return res.status(404).json({
+    res.status(404).json({
       error: 'Resource not found'
     })
+    return
   }
 
   res.status(500).json({
