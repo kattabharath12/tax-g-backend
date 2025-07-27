@@ -1,4 +1,3 @@
-
 import express from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
@@ -47,10 +46,16 @@ router.get('/:id/deductions', authenticateToken, requireOwnership, async (req: A
 router.post('/:id/deductions', authenticateToken, requireOwnership, async (req: AuthenticatedRequest, res) => {
   try {
     const validatedData = createDeductionSchema.parse(req.body)
+    const taxReturnId = req.params.id
+
+    if (!taxReturnId) {
+      res.status(400).json({ error: 'Tax return ID is required' })
+      return
+    }
 
     const deductionEntry = await prisma.deductionEntry.create({
       data: {
-        taxReturnId: req.params.id,
+        taxReturnId: taxReturnId,
         deductionType: validatedData.deductionType,
         description: validatedData.description,
         amount: new Decimal(validatedData.amount)
@@ -61,15 +66,16 @@ router.post('/:id/deductions', authenticateToken, requireOwnership, async (req: 
     })
 
     // Recalculate tax totals
-    await recalculateTaxTotals(req.params.id)
+    await recalculateTaxTotals(taxReturnId)
 
     res.status(201).json(deductionEntry)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'Validation Error',
-        details: error.errors
+        details: error.issues
       })
+      return
     }
     
     console.error('Error creating deduction entry:', error)
@@ -81,17 +87,25 @@ router.post('/:id/deductions', authenticateToken, requireOwnership, async (req: 
 router.put('/:id/deductions/:entryId', authenticateToken, requireOwnership, async (req: AuthenticatedRequest, res) => {
   try {
     const validatedData = updateDeductionSchema.parse(req.body)
+    const taxReturnId = req.params.id
+    const entryId = req.params.entryId
+
+    if (!taxReturnId || !entryId) {
+      res.status(400).json({ error: 'Tax return ID and entry ID are required' })
+      return
+    }
 
     // Verify the deduction entry belongs to this tax return
     const existingEntry = await prisma.deductionEntry.findFirst({
       where: {
-        id: req.params.entryId,
-        taxReturnId: req.params.id
+        id: entryId,
+        taxReturnId: taxReturnId
       }
     })
 
     if (!existingEntry) {
-      return res.status(404).json({ error: 'Deduction entry not found' })
+      res.status(404).json({ error: 'Deduction entry not found' })
+      return
     }
 
     const updateData: any = {}
@@ -101,7 +115,7 @@ router.put('/:id/deductions/:entryId', authenticateToken, requireOwnership, asyn
 
     const deductionEntry = await prisma.deductionEntry.update({
       where: {
-        id: req.params.entryId
+        id: entryId
       },
       data: updateData,
       include: {
@@ -110,15 +124,16 @@ router.put('/:id/deductions/:entryId', authenticateToken, requireOwnership, asyn
     })
 
     // Recalculate tax totals
-    await recalculateTaxTotals(req.params.id)
+    await recalculateTaxTotals(taxReturnId)
 
     res.json(deductionEntry)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'Validation Error',
-        details: error.errors
+        details: error.issues
       })
+      return
     }
     
     console.error('Error updating deduction entry:', error)
@@ -129,26 +144,35 @@ router.put('/:id/deductions/:entryId', authenticateToken, requireOwnership, asyn
 // DELETE /api/tax-returns/:id/deductions/:entryId
 router.delete('/:id/deductions/:entryId', authenticateToken, requireOwnership, async (req: AuthenticatedRequest, res) => {
   try {
+    const taxReturnId = req.params.id
+    const entryId = req.params.entryId
+
+    if (!taxReturnId || !entryId) {
+      res.status(400).json({ error: 'Tax return ID and entry ID are required' })
+      return
+    }
+
     // Verify the deduction entry belongs to this tax return
     const existingEntry = await prisma.deductionEntry.findFirst({
       where: {
-        id: req.params.entryId,
-        taxReturnId: req.params.id
+        id: entryId,
+        taxReturnId: taxReturnId
       }
     })
 
     if (!existingEntry) {
-      return res.status(404).json({ error: 'Deduction entry not found' })
+      res.status(404).json({ error: 'Deduction entry not found' })
+      return
     }
 
     await prisma.deductionEntry.delete({
       where: {
-        id: req.params.entryId
+        id: entryId
       }
     })
 
     // Recalculate tax totals
-    await recalculateTaxTotals(req.params.id)
+    await recalculateTaxTotals(taxReturnId)
 
     res.json({ message: 'Deduction entry deleted successfully' })
   } catch (error) {
