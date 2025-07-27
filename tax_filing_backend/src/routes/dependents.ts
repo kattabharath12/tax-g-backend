@@ -1,4 +1,3 @@
-
 import express from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
@@ -46,10 +45,16 @@ router.get('/:id/dependents', authenticateToken, requireOwnership, async (req: A
 router.post('/:id/dependents', authenticateToken, requireOwnership, async (req: AuthenticatedRequest, res) => {
   try {
     const validatedData = createDependentSchema.parse(req.body)
+    const taxReturnId = req.params.id
+
+    if (!taxReturnId) {
+      res.status(400).json({ error: 'Tax return ID is required' })
+      return
+    }
 
     const dependent = await prisma.dependent.create({
       data: {
-        taxReturnId: req.params.id,
+        taxReturnId: taxReturnId,
         firstName: validatedData.firstName,
         lastName: validatedData.lastName,
         ssn: validatedData.ssn,
@@ -59,15 +64,16 @@ router.post('/:id/dependents', authenticateToken, requireOwnership, async (req: 
     })
 
     // Recalculate tax totals (dependents affect credits)
-    await recalculateTaxTotals(req.params.id)
+    await recalculateTaxTotals(taxReturnId)
 
     res.status(201).json(dependent)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'Validation Error',
-        details: error.errors
+        details: error.issues
       })
+      return
     }
     
     console.error('Error creating dependent:', error)
@@ -79,17 +85,25 @@ router.post('/:id/dependents', authenticateToken, requireOwnership, async (req: 
 router.put('/:id/dependents/:dependentId', authenticateToken, requireOwnership, async (req: AuthenticatedRequest, res) => {
   try {
     const validatedData = updateDependentSchema.parse(req.body)
+    const taxReturnId = req.params.id
+    const dependentId = req.params.dependentId
+
+    if (!taxReturnId || !dependentId) {
+      res.status(400).json({ error: 'Tax return ID and dependent ID are required' })
+      return
+    }
 
     // Verify the dependent belongs to this tax return
     const existingDependent = await prisma.dependent.findFirst({
       where: {
-        id: req.params.dependentId,
-        taxReturnId: req.params.id
+        id: dependentId,
+        taxReturnId: taxReturnId
       }
     })
 
     if (!existingDependent) {
-      return res.status(404).json({ error: 'Dependent not found' })
+      res.status(404).json({ error: 'Dependent not found' })
+      return
     }
 
     const updateData: any = {}
@@ -103,21 +117,22 @@ router.put('/:id/dependents/:dependentId', authenticateToken, requireOwnership, 
 
     const dependent = await prisma.dependent.update({
       where: {
-        id: req.params.dependentId
+        id: dependentId
       },
       data: updateData
     })
 
     // Recalculate tax totals
-    await recalculateTaxTotals(req.params.id)
+    await recalculateTaxTotals(taxReturnId)
 
     res.json(dependent)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'Validation Error',
-        details: error.errors
+        details: error.issues
       })
+      return
     }
     
     console.error('Error updating dependent:', error)
@@ -128,26 +143,35 @@ router.put('/:id/dependents/:dependentId', authenticateToken, requireOwnership, 
 // DELETE /api/tax-returns/:id/dependents/:dependentId
 router.delete('/:id/dependents/:dependentId', authenticateToken, requireOwnership, async (req: AuthenticatedRequest, res) => {
   try {
+    const taxReturnId = req.params.id
+    const dependentId = req.params.dependentId
+
+    if (!taxReturnId || !dependentId) {
+      res.status(400).json({ error: 'Tax return ID and dependent ID are required' })
+      return
+    }
+
     // Verify the dependent belongs to this tax return
     const existingDependent = await prisma.dependent.findFirst({
       where: {
-        id: req.params.dependentId,
-        taxReturnId: req.params.id
+        id: dependentId,
+        taxReturnId: taxReturnId
       }
     })
 
     if (!existingDependent) {
-      return res.status(404).json({ error: 'Dependent not found' })
+      res.status(404).json({ error: 'Dependent not found' })
+      return
     }
 
     await prisma.dependent.delete({
       where: {
-        id: req.params.dependentId
+        id: dependentId
       }
     })
 
     // Recalculate tax totals
-    await recalculateTaxTotals(req.params.id)
+    await recalculateTaxTotals(taxReturnId)
 
     res.json({ message: 'Dependent deleted successfully' })
   } catch (error) {
